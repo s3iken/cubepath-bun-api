@@ -1,11 +1,9 @@
-function getEnvVar(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
+function getEnvVarOptional(name: string): string | undefined {
+  return process.env[name] || undefined;
 }
 
 export const env = {
-  openRouterApiKey: getEnvVar("OPENROUTER_API_KEY"),
+  openRouterApiKey: getEnvVarOptional("OPENROUTER_API_KEY"),
+  cerebrasApiKey: getEnvVarOptional("CEREBRAS_API_KEY"),
+  groqApiKey: getEnvVarOptional("GROQ_API_KEY"),
 };

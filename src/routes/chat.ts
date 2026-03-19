@@ -1,7 +1,7 @@
-import { openrouter } from "../services/openrouter";
+import { log, g } from "../lib/logger";
+import { generateRequestId } from "../lib/request-id";
+import { getNextProvider } from "../services/provider";
 import type { ChatRequestBody } from "../types/chat";
-
-const DEFAULT_MODEL = "openrouter/free";
 
 function parseBody(body: string): ChatRequestBody {
   try {
@@ -25,15 +25,22 @@ function getMessages(
   throw new Error("Request must include 'message' or 'messages'");
 }
 
-export async function handleChatPost(req: Request): Promise<Response> {
+export async function handleChatPost(req: Request, requestId?: string): Promise<Response> {
+  const id = requestId ?? generateRequestId();
+
   if (req.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
+  log("chat", "Entrando en handleChatRoute", id);
+  log("chat", `Method=${req.method} URL=${new URL(req.url).href}`, id);
+
   let body: ChatRequestBody;
   try {
+    log("chat", "Parseando JSON del body", id);
     const text = await req.text();
     body = parseBody(text || "{}");
+    log("chat", "Body parseado correctamente", id);
   } catch (e) {
     return Response.json(
       { error: e instanceof Error ? e.message : "Invalid request" },
@@ -41,8 +48,12 @@ export async function handleChatPost(req: Request): Promise<Response> {
     );
   }
 
+  const fields = Object.keys(body).filter((k) => (body as Record<string, unknown>)[k] != null);
+  log("chat", `Campos recibidos: [ ${fields.map((f) => g(`"${f}"`)).join(", ")} ]`, id);
+
   let messages: { role: "user"; content: string }[];
   try {
+    log("chat", "Normalizando mensajes", id);
     messages = getMessages(body);
   } catch (e) {
     return Response.json(
@@ -51,24 +62,30 @@ export async function handleChatPost(req: Request): Promise<Response> {
     );
   }
 
-  const model = body.model ?? DEFAULT_MODEL;
-
   try {
-    const stream = await openrouter.chat.send({
-      chatGenerationParams: {
-        model,
-        messages,
-        stream: true,
-      },
-    });
+    const provider = getNextProvider();
+    const model = body.model ?? provider.defaultModel;
+
+    log("chat", `Proveedor seleccionado: ${g(provider.name)}`, id);
+    log("chat", `Modelo solicitado: ${g(model)}`, id);
+    log("chat", `Número de mensajes: ${messages.length}`, id);
+
+    const firstMsg = messages[0];
+    if (firstMsg) {
+      const contentPreview =
+        firstMsg.content.length > 50 ? `${firstMsg.content.slice(0, 50)}...` : firstMsg.content;
+      log("chat", "Preview primer mensaje:", id);
+      console.log(`  { role: ${g('"user"')}, contentPreview: ${g(`"${contentPreview}"`)} }`);
+    }
+
+    log("chat", `Solicitando stream al proveedor ${g(provider.name)}...`, id);
+
+    const stream = provider.stream(messages, model);
 
     return new Response(
       (async function* () {
-        for await (const chunk of stream) {
-          const content = chunk.choices[0]?.delta?.content;
-          if (content) {
-            yield content;
-          }
+        for await (const content of stream) {
+          yield content;
         }
       })(),
       {
@@ -81,7 +98,7 @@ export async function handleChatPost(req: Request): Promise<Response> {
     );
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : "OpenRouter request failed";
+      err instanceof Error ? err.message : "Chat request failed";
     return Response.json({ error: message }, { status: 500 });
   }
 }
