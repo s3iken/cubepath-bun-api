@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chat API</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 36rem;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+      line-height: 1.5;
+      color: #333;
+    }
+    h1 { font-size: 1.25rem; font-weight: 500; margin-bottom: 1.5rem; }
+    textarea {
+      width: 100%;
+      min-height: 5rem;
+      padding: 0.75rem;
+      border: 1px solid #ddd;
+      font-size: 0.9rem;
+      resize: vertical;
+    }
+    button {
+      margin-top: 0.75rem;
+      padding: 0.5rem 1rem;
+      background: #000;
+      color: #fff;
+      border: none;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #output {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      border: 1px solid #eee;
+      min-height: 4rem;
+      white-space: pre-wrap;
+      font-size: 0.9rem;
+    }
+    #output:empty::before { content: "Respuesta..."; color: #999; }
+  </style>
+</head>
+<body>
+  <h1>Probar Chat API</h1>
+  <form id="form">
+    <textarea name="message" placeholder="Escribe tu mensaje..." required></textarea>
+    <button type="submit" id="btn">Enviar</button>
+  </form>
+  <div id="output"></div>
+
+  <script>
+    const form = document.getElementById("form");
+    const output = document.getElementById("output");
+    const btn = document.getElementById("btn");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = form.message.value.trim();
+      if (!msg) return;
+
+      output.textContent = "";
+      btn.disabled = true;
+
+      try {
+        const res = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: msg }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          output.textContent = "Error: " + (err.error || res.status);
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let text = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          text += decoder.decode(value, { stream: true });
+          output.textContent = text;
+        }
+      } catch (err) {
+        output.textContent = "Error: " + (err.message || "Error de conexión");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
