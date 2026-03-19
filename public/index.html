@@ -8,62 +8,99 @@
     * { box-sizing: border-box; }
     body {
       font-family: system-ui, sans-serif;
-      max-width: 36rem;
+      max-width: 42rem;
       margin: 0 auto;
       padding: 2rem 1rem;
       line-height: 1.5;
       color: #333;
     }
-    h1 { font-size: 1.25rem; font-weight: 500; margin-bottom: 1.5rem; }
-    textarea {
+    h1, h2 { font-size: 1.25rem; font-weight: 500; margin-bottom: 1rem; }
+    h2 { margin-top: 2rem; font-size: 1rem; color: #666; }
+    textarea, input {
       width: 100%;
-      min-height: 5rem;
-      padding: 0.75rem;
+      padding: 0.5rem 0.75rem;
       border: 1px solid #ddd;
       font-size: 0.9rem;
-      resize: vertical;
     }
+    textarea { min-height: 5rem; resize: vertical; }
+    input { margin-bottom: 0.5rem; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 0.5rem; }
+    .row input { flex: 1; min-width: 6rem; margin-bottom: 0; }
     button {
-      margin-top: 0.75rem;
       padding: 0.5rem 1rem;
       background: #000;
       color: #fff;
       border: none;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       cursor: pointer;
+      white-space: nowrap;
     }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    #output {
-      margin-top: 1.5rem;
+    button.secondary { background: #555; }
+    .output {
+      margin-top: 1rem;
       padding: 1rem;
       border: 1px solid #eee;
-      min-height: 4rem;
+      min-height: 3rem;
       white-space: pre-wrap;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
+      font-family: ui-monospace, monospace;
+      max-height: 12rem;
+      overflow-y: auto;
     }
-    #output:empty::before { content: "Respuesta..."; color: #999; }
+    .output:empty::before { content: "Respuesta..."; color: #999; }
+    .output.error { border-color: #c00; color: #c00; }
+    .method { font-weight: 600; margin-right: 0.5rem; }
+    .method.get { color: #0a0; }
+    .method.post { color: #07c; }
+    .method.put { color: #a60; }
+    .method.delete { color: #c00; }
   </style>
 </head>
 <body>
   <h1>Probar Chat API</h1>
-  <form id="form">
+  <form id="chatForm">
     <textarea name="message" placeholder="Escribe tu mensaje..." required></textarea>
-    <button type="submit" id="btn">Enviar</button>
+    <button type="submit" id="chatBtn">Enviar</button>
   </form>
-  <div id="output"></div>
+  <div id="chatOutput" class="output"></div>
+
+  <h2>REST /users</h2>
+  <div class="row">
+    <button type="button" data-method="GET" data-url="/users">GET /users</button>
+    <button type="button" data-method="GET" data-url="/users/" class="secondary">GET /users/:id</button>
+    <input type="number" id="getById" placeholder="ID" min="1" style="width:5rem">
+  </div>
+  <div class="row">
+    <input type="text" id="postName" placeholder="name">
+    <input type="text" id="postEmail" placeholder="email">
+    <button type="button" data-method="POST" data-url="/users">POST /users</button>
+  </div>
+  <div class="row">
+    <input type="number" id="putId" placeholder="ID" min="1" style="width:5rem">
+    <input type="text" id="putName" placeholder="name">
+    <input type="text" id="putEmail" placeholder="email">
+    <button type="button" data-method="PUT" data-url="/users/" class="secondary">PUT /users/:id</button>
+  </div>
+  <div class="row">
+    <input type="number" id="delId" placeholder="ID" min="1" style="width:5rem">
+    <button type="button" data-method="DELETE" data-url="/users/" class="secondary">DELETE /users/:id</button>
+  </div>
+  <div id="restOutput" class="output"></div>
 
   <script>
-    const form = document.getElementById("form");
-    const output = document.getElementById("output");
-    const btn = document.getElementById("btn");
+    const chatForm = document.getElementById("chatForm");
+    const chatOutput = document.getElementById("chatOutput");
+    const chatBtn = document.getElementById("chatBtn");
 
-    form.addEventListener("submit", async (e) => {
+    chatForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const msg = form.message.value.trim();
+      const msg = chatForm.message.value.trim();
       if (!msg) return;
 
-      output.textContent = "";
-      btn.disabled = true;
+      chatOutput.textContent = "";
+      chatOutput.classList.remove("error");
+      chatBtn.disabled = true;
 
       try {
         const res = await fetch("/chat", {
@@ -74,7 +111,8 @@
 
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          output.textContent = "Error: " + (err.error || res.status);
+          chatOutput.textContent = "Error: " + (err.error || res.status);
+          chatOutput.classList.add("error");
           return;
         }
 
@@ -86,13 +124,76 @@
           const { done, value } = await reader.read();
           if (done) break;
           text += decoder.decode(value, { stream: true });
-          output.textContent = text;
+          chatOutput.textContent = text;
         }
       } catch (err) {
-        output.textContent = "Error: " + (err.message || "Error de conexión");
+        chatOutput.textContent = "Error: " + (err.message || "Error de conexión");
+        chatOutput.classList.add("error");
       } finally {
-        btn.disabled = false;
+        chatBtn.disabled = false;
       }
+    });
+
+    const restOutput = document.getElementById("restOutput");
+
+    async function restCall(method, url, body) {
+      restOutput.textContent = "";
+      restOutput.classList.remove("error");
+      try {
+        const opts = { method, headers: { "Content-Type": "application/json" } };
+        if (body && (method === "POST" || method === "PUT" || method === "PATCH")) {
+          opts.body = JSON.stringify(body);
+        }
+        const res = await fetch(url, opts);
+        const text = await res.text();
+        let data;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          data = text;
+        }
+        let out = typeof data === "object" && data !== null
+          ? JSON.stringify(data, null, 2)
+          : (data || (res.status === 204 ? "204 No Content" : ""));
+        restOutput.textContent = (res.ok ? "" : `[${res.status}] `) + out;
+        if (!res.ok) restOutput.classList.add("error");
+      } catch (err) {
+        restOutput.textContent = "Error: " + (err.message || "Error de conexión");
+        restOutput.classList.add("error");
+      }
+    }
+
+    document.querySelectorAll("[data-method]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const method = btn.dataset.method;
+        let url = btn.dataset.url;
+        if (method === "GET" && url === "/users") {
+          await restCall(method, url);
+        } else if (method === "GET" && url === "/users/") {
+          const id = document.getElementById("getById").value;
+          if (!id) { restOutput.textContent = "Introduce un ID"; return; }
+          await restCall(method, url + id);
+        } else if (method === "POST") {
+          const name = document.getElementById("postName").value.trim();
+          const email = document.getElementById("postEmail").value.trim();
+          if (!name || !email) { restOutput.textContent = "name y email son requeridos"; return; }
+          await restCall(method, url, { name, email });
+        } else if (method === "PUT") {
+          const id = document.getElementById("putId").value;
+          const name = document.getElementById("putName").value.trim();
+          const email = document.getElementById("putEmail").value.trim();
+          if (!id) { restOutput.textContent = "Introduce un ID"; return; }
+          const body = {};
+          if (name) body.name = name;
+          if (email) body.email = email;
+          if (Object.keys(body).length === 0) { restOutput.textContent = "Introduce name o email"; return; }
+          await restCall(method, url + id, body);
+        } else if (method === "DELETE") {
+          const id = document.getElementById("delId").value;
+          if (!id) { restOutput.textContent = "Introduce un ID"; return; }
+          await restCall(method, url + id);
+        }
+      });
     });
   </script>
 </body>
